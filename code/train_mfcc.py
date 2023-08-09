@@ -6,7 +6,7 @@ import torch
 from torch.utils.data import DataLoader
 from torch import nn
 from torch.nn.utils.rnn import pad_sequence
-from model import AsrDataset
+from dataset import AsrDataset
 from model import LSTM_ASR_MFCC
 import numpy as np
 from tqdm import tqdm
@@ -29,8 +29,10 @@ def make_parser():
                               help='path to validation_file')
     train_parser.add_argument('--save_path', default=None,
                               help='path to save the model')
-    train_parser.add_argument('--save_loss',default=None,
+    train_parser.add_argument('--save_train_loss',default=None,
                               help='path to save the training loss')
+    train_parser.add_argument('--save_val_loss',default=None,
+                              help='path to save the validation loss')
     return train_parser
 
 def collate_fn(batch):
@@ -102,7 +104,8 @@ def train(args):
     ctc_loss = torch.nn.CTCLoss(blank=0, zero_infinity=True)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
     
-    total_loss = []
+    train_total_loss = []
+    val_total_loss = []
     for epoch in range(args.epochs):
         onepochloss = 0
         train_bar = tqdm(train_dataloader, total=len(train_dataloader),colour='red')
@@ -125,9 +128,10 @@ def train(args):
             
             train_bar.set_description("train epcoh:{}  loss:{:.6f}".format(epoch, loss.item()))
             train_bar.update(1)
-        total_loss.append(onepochloss/len(train_dataloader))
+        train_total_loss.append(onepochloss/len(train_dataloader))
         # 验证集       
         if args.validation_file:     
+            onepochloss = 0
             with torch.no_grad():
                 for batch in val_dataloader:
                     padded_label = batch[0].to(device)
@@ -137,14 +141,17 @@ def train(args):
                     
                     output = model(padded_features,unpadded_feature_length)
                     loss = ctc_loss(output, padded_label,unpadded_feature_length,unpadded_word_spelling_length)
+                    onepochloss+=loss.item()
                     val_bar.set_description("val epcoh:{}  loss:{:.6f}".format(epoch, loss.item()))
                     val_bar.update(1)
+                val_total_loss.append(onepochloss/len(val_dataloader))
     if args.save_path:
         torch.save(model.state_dict(), args.save_path) # '../save_model/asr.ckpt'
         
-    if args.save_loss:
+    if args.save_train_loss:
         epochs = np.arange(1,args.epochs+1)
-        _draw_training_loss(epochs,total_loss,args.save_loss)
+        _draw_training_loss(epochs,train_total_loss,args.save_loss)
+        _draw_training_loss(epochs,val_total_loss,args.save_loss)
         
         
 def _draw_training_loss(epochs,total_loss,save_loss):

@@ -8,10 +8,8 @@ from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
 from torch.cuda.amp import autocast,GradScaler
 from dataset import AsrDataset
-from model import LSTM_ASR
+from model import LSTM_ASR_MFCC
 import tensorflow as tf
-
-# TODO: tf.nn.ctc_beam_search_decoder
 
 
 def make_parser():
@@ -21,9 +19,33 @@ def make_parser():
                               help='batch size')
     test_parser.add_argument('--test_path', type=str, required= True,
                               help = 'path to test file')
+    test_parser.add_argument('--waveform_file', required=True, type=str,
+                              help='path to training data file')
     test_parser.add_argument('--model_path', type=str, required= True,
                               help = 'path to model')
     return test_parser
+
+
+# TODO: tf.nn.ctc_beam_search_decoder
+def beam_search_decoder(probs,seq_length):
+    """beam_search_decoder _summary_
+
+    Args:
+        probs  (float Tensor): size [max_time, batch_size, num_classes]
+        seq_length (int32): sequence_length: 1-D int32 vector containing sequence lengths, having size
+    [batch_size].
+
+    Returns:
+        _type_: _description_
+    """
+    decoded,_ = tf.nn.ctc_beam_search_decoder(probs,seq_length)
+
+    for result in decoded:
+        value = result.values.numpy()
+        text = ''.join(chr(idx + ord('a') - 2) for idx in value)
+
+    return text
+    
 
 def greedy_decode(probs, blank_idx, space_idx):
     """decode function
@@ -45,8 +67,8 @@ def greedy_decode(probs, blank_idx, space_idx):
        [0.05, 0.2, 0.1, 0.2, 0.1],   # t=4
     ]
     >>>
-    blank_idx = 0
-    space_idx = 4
+    >>> blank_idx = 0
+    >>> space_idx = 4
     >>>
     decoded_result = greedy_decode(probs, blank_idx, space_idx)
     print(decoded_result)  # 输出： "abcd"
@@ -72,8 +94,8 @@ def greedy_decode(probs, blank_idx, space_idx):
             max_prob_idx = np.argmax(probs[batch][t])
 
             # 如果当前字符是空白符或与前一个字符相同（重复字符），跳过
-            if max_prob_idx in [blank_idx, prev_char]:
-                continue
+            # if max_prob_idx in [blank_idx, prev_char]:
+            #     continue
 
             # 如果当前字符是空格，将其映射为" "
             if max_prob_idx == space_idx:
@@ -87,13 +109,14 @@ def greedy_decode(probs, blank_idx, space_idx):
 
         # 将解码结果连接成最终文本
         final_text = ''.join(decoded_text)
-        all_text.append(final_text)
+        all_text.append(final_text.strip())
 
     return all_text
 
 
 def decode_label(coded_label):
-    """decode_label 
+    """decode_label +
+    
     
     Args:
         coded_label (tensor): _description_
@@ -133,31 +156,18 @@ def collate_fn(batch):
                            list_of_unpadded_feature_length (for CTCLoss), input_length
     """
     
-    
     batch_size = len(batch)
-    data  = [torch.tensor(batch[i][0],dtype=torch.long) for i in range(batch_size)]
-    label = [torch.tensor(batch[i][1],dtype=torch.long) for i in range(batch_size)]
+    data  = [torch.tensor(batch[i][0],dtype=torch.float) for i in range(batch_size)]
+    label = [torch.tensor(batch[i][1],dtype=torch.float) for i in range(batch_size)]
     
-    unpadded_word_spelling_length = torch.tensor(np.array([len(i) for i in label]), dtype=torch.long)
-    unpadded_feature_length = torch.tensor(np.array([len(i) for i in data]), dtype=torch.long)
+    unpadded_word_spelling_length = torch.tensor(np.array([len(i) for i in label]), dtype=torch.int)
+    unpadded_feature_length = torch.tensor(np.array([len(i) for i in data]), dtype=torch.int)
     
     padded_features = pad_sequence(data,batch_first=True,padding_value=0)
     padded_label = pad_sequence(label,batch_first=True,padding_value=0)
 
     return padded_label, padded_features,unpadded_word_spelling_length,unpadded_feature_length
 
-# def compute_acc(text,label):
-#     """compute_acc 
-
-#     Args:
-#         text (list): _description_
-#         label (list): _description_
-
-#     Returns:
-#         acc_num: the acc_num between the label and the text
-#     """
-    
-#     return sum(1 for i in range(len(text)) if text[i] == label[i])
 
 def decode(args):
 
@@ -169,17 +179,22 @@ def decode(args):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(device)
 
-    model = LSTM_ASR().to(device)
+    model = LSTM_ASR_MFCC().to(device)
     model.load_state_dict(torch.load(args.model_path))
 
+    # print(f"root:\t{root}")
     val_file = os.path.join(root, args.test_path)
+    # print(val_file)
+    waveform = os.path.join(root, args.waveform_file)
     # val_file = os.path.join(root, "data/val")
+    print(os.path.join(val_file, "clsp.trnwav"))
     val_set = AsrDataset(
-        scr_file = os.path.join(val_file, "clsp.trnscr"),
-        feature_label_file = os.path.join(val_file, "clsp.lblnames"),
-        feature_file = os.path.join(val_file, "clsp.trnlbls"),
-        wav_scp = os.path.join(val_file, "clsp.trnwav"),
-        )
+                feature_type='mfcc',
+                scr_file = os.path.join(val_file, "clsp.trnscr"),
+                wav_scp = os.path.join(val_file, "clsp.trnwav"),
+                wav_dir=waveform
+                )
+            
 
 
     val_dataloader = DataLoader(dataset = val_set,
@@ -195,9 +210,12 @@ def decode(args):
         for batch in val_dataloader:
             padded_label = batch[0].to(device)
             padded_features = batch[1].to(device)
+            unpadded_word_spelling_length = batch[2]
             unpadded_feature_length = batch[3]
+            
             output = model(padded_features,unpadded_feature_length)
-
+            print(output.shape)
+            # text = beam_search_decoder(output.cpu(),unpadded_word_spelling_length)
             text = greedy_decode(output,0,1)
             label = decode_label(padded_label)
 
