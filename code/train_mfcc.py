@@ -80,11 +80,6 @@ def train(args):
                                   shuffle=True,
                                   collate_fn=collate_fn
                                   )
-    # for i in train_dataloader:
-    #     for j in range(i[1].shape[1]):
-    #         print(i[1][0][j])
-    #     break    
-    #     print(i[1].shape)
     
     if args.validation_file != None:
 
