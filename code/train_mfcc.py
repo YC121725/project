@@ -12,7 +12,7 @@ import numpy as np
 from tqdm import tqdm
 from matplotlib import pyplot as plt
 import seaborn as sns
-
+  
 def make_parser():  
     train_parser = argparse.ArgumentParser()
     train_parser.add_argument('--batch_size',type=int,default=4,
