@@ -1,0 +1,19 @@
+{
+    "batch_size":4,
+    "epochs":100,
+    "model_type":"discrete",
+    "learning_rate":5e-3,
+    "mfcc_dim":40,
+
+    "training_file":"data/train",
+    "validation_file":"data/val",
+    "waveform_file":"data/waveforms",
+
+    "save_model":"../save_model/asr_discrete.ckpt",
+    "save_pic":"../pic/asr_discrete.png",
+
+    "input_size":64,
+    "hidden_size":256,
+    "num_layers":2,
+    "output_size":28
+}

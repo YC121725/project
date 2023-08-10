@@ -312,11 +312,11 @@ import torch.nn.functional as F
 
 # loss = ctc_loss(logits, target, input_lengths, target_lengths)
 # print(loss)
-
-import matplotlib
-import seaborn as sns
-import matplotlib.pyplot as plt
-import numpy as np
+"""-------------绘图---------------"""
+# import matplotlib
+# import seaborn as sns
+# import matplotlib.pyplot as plt
+# import numpy as np
 
 # 生成虚拟的损失值数据
 # epochs = np.arange(1, 9)
@@ -375,3 +375,16 @@ import numpy as np
 
 # # 显示图形
 # plt.show()
+def train(config):
+    print(config)
+
+import argparse
+import json
+parser = argparse.ArgumentParser(description="Model Training")
+parser.add_argument("--config", type=str, default="config.json", help="Path to config.json file")
+args = parser.parse_args()
+with open(args.config, "r") as config_file:
+        config = json.load(config_file)
+    # 调用训练函数
+train(config)
+

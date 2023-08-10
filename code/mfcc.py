@@ -355,7 +355,7 @@ def _extracted_from_mel_filter(freq, fbank, i):
     plt.ylabel('幅值')
     plt.title('Mel滤波器组')
 
-def Dynamic_Feature(mfcc,cutframe = True):
+def Dynamic_Feature(mfcc,ischafen=False, cutframe = False):
     '''
     动态特征提取
     -----------
@@ -384,30 +384,35 @@ def Dynamic_Feature(mfcc,cutframe = True):
     '''--------3阶差分运算--------
         一阶差分
     '''
+    if ischafen:
+        feat = _extracted_from_Dynamic_Feature_(feat)
+        # print("经过差分",feat.shape)
+    '''是否去掉前后各两帧'''
+    if cutframe:
+        feat = feat[2:-2,:]
+    return feat
+
+
+# TODO Rename this here and in `Dynamic_Feature`
+def _extracted_from_Dynamic_Feature_(feat):
     dtfeat = np.zeros(feat.shape)
     for i in range(2,dtfeat.shape[0]-2):
         dtfeat[i,:] = -2*feat[i-2,:]-feat[i-1,:]+feat[i+1,:]+2*feat[i+2,:]
-    dtfeat = dtfeat/10
-
     '''二阶差分'''
     dttfeat = np.zeros(feat.shape)
+    dtfeat = dtfeat/10
     for i in range(2,dttfeat.shape[0]-2):
         dttfeat[i,:] = -2*dtfeat[i-2,:]-dtfeat[i-1,:]+dtfeat[i+1,:]+2*dtfeat[i+2,:]
     dttfeat = dttfeat/10
 
-    '''三阶差分'''
-    dtttfeat = np.zeros(feat.shape)
-    for i in range(2,dtttfeat.shape[0]-2):
-        dtttfeat[i,:] = -2*dttfeat[i-2,:]-dttfeat[i-1,:]+dttfeat[i+1,:]+2*dttfeat[i+2,:]
-    dtttfeat = dtttfeat/10   
+    # '''三阶差分'''
+    # dtttfeat = np.zeros(feat.shape)
+    # for i in range(2,dtttfeat.shape[0]-2):
+    #     dtttfeat[i,:] = -2*dttfeat[i-2,:]-dttfeat[i-1,:]+dttfeat[i+1,:]+2*dttfeat[i+2,:]
+    # dtttfeat = dtttfeat/10   
 
     '''拼接'''
-    mfcc_final = np.concatenate((feat.T,dtfeat.T,dttfeat.T,dtttfeat.T))
-
-    '''是否去掉前后各两帧'''
-    if cutframe:
-        mfcc_final = mfcc_final[2:-2,:]
-    return mfcc_final
+    return np.concatenate((feat.T,dtfeat.T,dttfeat.T))
 
 def CMVN(feature):
     '''

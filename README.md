@@ -12,13 +12,13 @@
 
 - [x] 修改文件model.py中提供的代码，创建PyTorch模型。建议使用LSTM模型，但您可以使用cnn或cnn和LSTM的组合进行实验。模型输出是 Batch × InputLength × NumLetters。<!--这里只使用了LSTM模型进行测试-->
 
-  > `# TODO: CRNN模型的性能`
+  > `TODO: CRNN模型的性能`
 
 - [x] 使用CTC准则训练PyTorch模型，在训练期间计算一些保留(即验证)集上的CTC损失。
 
 - [x] 创建一个识别器，使用这些概率从48个单词的词汇表中生成最可能的单词。
 
-  > - [x] (a)一种简单的(“贪婪”)方法是将每帧中最可能出现的字母作为输出符号，然后“压缩”重复的符号来拼写输出单词。
+  > - [x] (a)采用greedy decode方法将每帧中最可能出现的字母作为输出符号，然后“压缩”重复的符号来拼写输出单词。
   >
   >   ```TODO: 1) 采用数据增强```
   >
@@ -26,11 +26,15 @@
   >
   >   ​	 		```3) 采用负样本训练联合损失```
   >
-  > - [ ] *(b) 采用beam search 方法计算可能的单词。
+  > - [ ] (b) 采用beam search 方法计算可能的单词。
+  >
+  >   `正在完善代码部分`
   >
   > - [ ] (c)为每个测试样例计算每个沉默添加词假设的内置CTCLoss，并选择损失最小的词作为该样例的输出。
 
 - [ ] 检查模型在训练数据本身上的准确性，以确保它正确地训练。此外，请为提供的393个测试话语中的每一个提交你的单词假设。
+
+  > 正在调参，改进模型性能中
 
 
 
@@ -128,7 +132,7 @@ python decode.py --test_path data/test --waveform_file data/waveforms --model_pa
 
 ### 1. 基于LSTM + CTC模型
 
-### **Input**
+#### **Input**
 
 ```python
 # 原始数据
@@ -146,7 +150,7 @@ batch_seq = [[16 25 48 9 3 65 ... 0 0 0 ]
              [16 25 48 9 3 ... 0 0 0 0 0 ]]
 ```
 
-### **Target**
+#### **Target**
 
 ```python
 # 字符集大小为28，包括26个字母和空白符,以及<sil>字符
@@ -157,7 +161,7 @@ target = ['<sil>','m','o','n','e','y','<sil>']
 target = [1, 14, 16, 15, 6, 26, 1]
 ```
 
-### **Model**
+#### **Model**
 
 ​		采用两层双向LSTM，参数均是代码原始给定。采用pack_padded_sequence函数和pad_packed_sequence函数将数据进行压缩和解压缩，消除pad对模型的影响，具体详细说明见[rnn.pack_padded_sequence 和 pad_packed_sequence](#rnn.pack_padded_sequence 和 pad_packed_sequence)。
 
@@ -206,18 +210,13 @@ class LSTM_ASR(nn.Module):
         return logits
 ```
 
-
-
-
-
-## Save Model
+#### Save Model
 
 * **asr.ckpt**
 
 ```python
 ## Model
-Model(feature_type="discrete", 
-    input_size=64, 
+Model(input_size=64, 
      hidden_size=256, 
      num_layers=2,
      output_size=28)
@@ -237,19 +236,131 @@ epochs=20,
 learning_rate=0.005
 ```
 
+#### TODO
+
+> 1)  采用不同的解码方案，对比分析
+> 2)  调试batch size，学习率，Epoch等参数。
 
 
-## Training Loss
+
+### 2. 基于MFCC + LSTM + CTC 模型
+
+#### Input
+
+​		1） 读入音频，将音频的非静音段作为MFCC的输入。
+
+​		2） MFCC 维度设为13， 将一阶差分和二阶差分与MFCC进行拼接，维度共为39维，再进行去均值和归一化，作为最终的训练集，维度为`[Batch, Seq, MFCC]`。
+
+#### Target
+
+​		去掉<sil>标签，以字母作为标签。
+
+```python
+# 字符集大小为28，包括26个字母和空白符,以及<sil>字符
+character_set = [' ','<sil>','a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z'] 
+
+eg.
+target = ['m','o','n','e','y']
+target = [14, 16, 15, 6, 26]
+```
+
+#### Model
+
+​		采用LSTM，和模型1结构相同，input_size 为 39，hidden_size = 100。
+
+```python
+class LSTM_ASR_MFCC(nn.Module):
+    def __init__(self,
+                 input_size=39,# 48 
+                 hidden_size=100, 
+                 num_layers=2,
+                 output_size=28,
+                 init = None):  # sourcery skip: remove-redundant-if
+        super().__init__()
+        self.hidden_size = hidden_size
+        # self.embed = nn.Embedding(num_embeddings=300,embedding_dim=input_size)
+        self.lstm = torch.nn.LSTM(input_size = input_size,
+                                    hidden_size = hidden_size,
+                                    num_layers = num_layers,
+                                    bidirectional = True,
+                                    batch_first = True,
+                                    dropout = 0.5)
+
+        self.fc = nn.Linear(hidden_size, output_size)
+        
+    def forward(self, input_features,input_lengths):
+        """forward _summary_
+        Args:
+            input_features: (N, T) N:Batch size, T:sequence length
+            input_lengths: 
+        """
+        packed_input = rnn_utils.pack_padded_sequence(input_features, input_lengths, batch_first = True, enforce_sorted = False)
+        packed_output, (_, _) = self.lstm(packed_input)
+        # print(f"packed_output.shape:\t {packed_output}")
+        output, _ = rnn_utils.pad_packed_sequence(packed_output, batch_first=True)
+
+        H = output[:,:,:self.hidden_size] + output[:,:,self.hidden_size:]
+
+        logits = F.log_softmax(self.fc(H),dim=-1)
+        
+        logits = logits.transpose(0,1)
+        return logits
+```
+
+#### Save Model
+
+* **asr_mfcc_no_sil.ckpt**
+
+```python
+## Model
+Model(input_size=35,
+     hidden_size=256, 
+     num_layers=3,
+     output_size=28,)
+self.lstm
+self.fc
+
+"""
+# [seq_len, Batch, mfcc(39)]
+
+## Training Para
+batch_size=4,
+epochs=20,
+learning_rate=0.005
+mfcc = 13 采用一阶差分，二阶差分，拼接而成39维度，然后进行取均值归一化。
+```
+
+#### TODO
+
+> 1)  【问题】训练不收敛
+> 2)  同上
+> 3)  测试MFCC维度的影响
+
+
+
+## Loss
 
 * **LSTM + CTC Loss**
 
-![asr](D:\Study\Project\project\pic\asr.png)
+![asr](D:\Study\Project\project\pic\asr_training.png)
+
+
 
 * **MFCC + LSTM + CTC Loss**
 
-![asr_mfcc](D:\Study\Project\project\pic\asr_mfcc.png)
 
 
+```python
+# train
+> python train_mfcc.py --training_file data/train --waveform_file data/waveforms  --validation_file data/val --save_path ../save_model/asr_mfcc_no_sil.ckpt --save_train_loss ../pic/asr_mfcc_no_sil_training.png --save_val_loss ../pic/asr_mfcc_no_sil_validation.png --epochs 30
+
+# decode
+> python decode_mfcc.py --test_path data/val --waveform_file data/waveforms --model_path ../save_model/asr_mfcc_no_sil.ckpt
+```
+
+![asr_mfcc_no_sil_training](D:\Study\Project\project\pic\asr_mfcc_no_sil_training.png)
+
+![asr_mfcc_no_sil_validation](D:\Study\Project\project\pic\asr_mfcc_no_sil_validation.png)
 
 
 
@@ -343,7 +454,13 @@ learning_rate=0.005
 
    #### 【**实验结果**】
 
-   基于LSTM+CTC
+   * 基于LSTM+CTC
+
+     Epoch: **40**  Training Acc:  Validation Acc: **38%**
+
+   * 基于MFCC + LSTM + CTC 
+
+     Epoch: **40**   Training Acc:  Validation Acc:
 
 ### **Beam Search**
 
@@ -356,11 +473,12 @@ learning_rate=0.005
 ### 基于CTCLoss 选择最小的损失
 
 ```python
+# TODO: CTCLoss
 ```
 
 
 
-## Function Usage
+## *Function Usage*
 
 ### <span id="rnn.pack_padded_sequence 和 pad_packed_sequence">rnn.pack_padded_sequence 和 pad_packed_sequence</span>
 
