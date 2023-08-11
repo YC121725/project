@@ -1,0 +1,17 @@
+{
+    "batch_size":4,
+    "model_type":"discrete",
+    "mfcc_dim":40,
+
+    "training_file":"data/train",
+    "validation_file":"data/val",
+    "waveform_file":"data/waveforms",
+
+    "save_model":"../save_model/asr_discrete.ckpt",
+    
+    "input_size":64,
+    "hidden_size":256,
+    "num_layers":2,
+    "output_size":28,
+    "dropout":0.3
+}

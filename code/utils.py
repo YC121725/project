@@ -1,7 +1,52 @@
+
 import numpy as np
-import matplotlib.pyplot as plt
+
+import torch.nn as nn
 
 import tensorflow as tf
+import matplotlib.pyplot as plt
+
+from dataset import CHARS
+
+
+# TODO: 加入负样本，联合训练
+
+class FedCTCLoss(nn.Module):
+    def __init__(self,
+                 alpha = 0.3
+                 ):
+        super().__init__()
+        self.alpha = alpha
+        self.pos_loss = nn.CTCLoss(blank=0,zero_infinity=True)
+        self.neg_loss = nn.CTCLoss(blank=0,zero_infinity=True)
+
+    def forward(self, 
+                model_out,
+                model_length, 
+                pos_label, 
+                pos_length,       
+                neg_label,  
+                neg_length, 
+                ):
+
+    
+        return self.pos_loss(model_out, pos_label,model_length,pos_length) - self.alpha*self.neg_loss(model_out, neg_label,model_length,neg_length)
+    
+        
+    # 时域损失
+    #     LT = torch.mean(torch.abs(torch.sub(model_out,target)))
+        
+    #     # out与label频域损失
+    #     CTCLoss = nn.CTCLoss()  
+    #     # 整体频域损失
+    #     LPCM = CTCLoss + ResMagLoss
+        
+    #     LT_PCM  = 0.6*LT + 0.4*LPCM
+    #     return LT_PCM
+    
+    # @staticmethod
+    # def decode():
+
 
 # TODO: tf.nn.ctc_beam_search_decoder
 def beam_search_decoder(probs,seq_length):
@@ -24,40 +69,13 @@ def beam_search_decoder(probs,seq_length):
     return text
 
 
-def greedy_decode(probs, blank_idx, space_idx):
-    """decode function
-    # TODO: 根据实际输出确定参数类型，完善代码
-    # NOTE: 
+def greedy_decode(probs, blank_idx=0, space_idx=28):
     
-    Args:
-        probs (_type_): shape:(N, T, C)
-        blank_idx (_type_): _description_
-        space_idx (_type_): _description_
-    
-    # 假设我们有一个CTC输出概率矩阵probs，空白符的索引是0，空格符的索引是4
-    # 
-    probs = [
-       [0.1, 0.2, 0.05, 0.1, 0.2],   # t=0
-       [0.2, 0.05, 0.1, 0.1, 0.3],   # t=1
-       [0.1, 0.3, 0.2, 0.1, 0.1],    # t=2
-       [0.15, 0.1, 0.3, 0.2, 0.05],  # t=3
-       [0.05, 0.2, 0.1, 0.2, 0.1],   # t=4
-    ]
-    >>>
-    blank_idx = 0
-    space_idx = 4
-    >>>
-    decoded_result = greedy_decode(probs, blank_idx, space_idx)
-    print(decoded_result)  # 输出： "abcd"
-    >>>
-    
-    Returns:
-        _type_: _description_
-    """
     probs = probs.transpose(0,1)
-    probs = np.array(probs.cpu())
-    # 将概率矩阵转换为NumPy数组
+    probs = np.array(probs.detach().cpu().numpy())
+
     all_text = []
+    number2letter = dict(enumerate(CHARS))
     for batch in range(probs.shape[0]):
         # for a batch
 
@@ -70,24 +88,18 @@ def greedy_decode(probs, blank_idx, space_idx):
             # 获取当前时间步的最高概率字符的索引
             max_prob_idx = np.argmax(probs[batch][t])
 
-            # 如果当前字符是空白符或与前一个字符相同（重复字符），跳过
-            if max_prob_idx in [blank_idx, prev_char]:
-                continue
-
-            # 如果当前字符是空格，将其映射为" "
-            if max_prob_idx == space_idx:
-                decoded_text.append(" ")
-            else:
+            if max_prob_idx not in [blank_idx, prev_char,space_idx]:  # 0 1 per_char
                 # 将字符索引映射为实际字符，并添加到解码结果中
-                decoded_text.append(chr(max_prob_idx + ord('a') - 2))
+                decoded_text.append(number2letter[max_prob_idx]) 
 
             # 更新前一个字符
             prev_char = max_prob_idx
 
         # 将解码结果连接成最终文本
         final_text = ''.join(decoded_text)
+        final_text = final_text.replace(' ','').replace('_','')
         all_text.append(final_text)
-
+        
     return all_text
 
 
@@ -100,10 +112,7 @@ def decode_label(coded_label):
     Returns:
         _type_: decoded label 
     """
-    CHARS = [" ","<sil>","a","b","c","d","e","f","g",
-                    "h","i","j","k","l","m","n",
-                    "o","p","q","r","s","t",
-                    "u","v","w","x","y","z",]
+
     number2letter = dict(enumerate(CHARS))
     coded_label = np.array(coded_label.cpu())
     all_text = []
@@ -113,46 +122,53 @@ def decode_label(coded_label):
         word = [
             number2letter[coded_label[t][j]]
             for j in range(coded_label.shape[1])
-            if coded_label[t][j] not in [1, 0]
+            if coded_label[t][j] not in [28, 1, 0]
         ]
         word = ''.join(word)
         all_text.append(word)
 
     return all_text
 
-
 def compute_acc(text,label):
-    """compute_acc 
-
-    Args:
-        text (list): _description_
-        label (list): _description_
-
-    Returns:
-        acc_num: the acc_num between the label and the text
-    """
-    
-    return sum(text[i].strip() == label[i].strip() for i in range(len(text)))
+    return sum(
+        1
+        for i in range(len(text))
+        if text[i].replace('_', '').replace(' ', '').strip()
+        == label[i].replace('_', '').replace(' ', '').strip()
+    )
 
 def _draw(epochs,train_loss,val_loss,train_acc,val_acc,save):
-    plt.plot(epochs,train_loss)
-    plt.plot(epochs,val_loss)
-    plt.plot(epochs,train_acc)
-    plt.plot(epochs,val_acc)
+
+    # 创建图像
+    _, ax1= plt.subplots(figsize=(10, 6))
+
+    # 绘制训练损失曲线
+    color1 = 'tab:blue'
+    color2 = 'orange'
+    ax1.set_xlabel('Epochs')
+    ax1.set_ylabel('Loss')
+    ax1.plot(epochs, train_loss, color=color1,linestyle='-', linewidth=2,label='Training Loss')
+    ax1.plot(epochs, val_loss, color=color2,linestyle='-', linewidth=2,label='Val  Loss')
+    ax1.tick_params(axis='y')
+
+    # 创建第二个y轴
+    ax2 = ax1.twinx()
+
+    # 绘制准确率曲线
+    color1 = 'tab:green'
+    color2 = 'red'
+    ax2.set_ylabel('Accuracy')
+    ax2.plot(epochs, train_acc, color=color1,linestyle='--', linewidth=2,label='Training Accuracy')
+    ax2.plot(epochs, val_acc, color=color2,linestyle='--', linewidth=2,label='Val Accuracy')
+    ax2.tick_params(axis='y')
+
+    # 添加图例
+    lines, labels = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax2.legend(lines + lines2, labels + labels2, loc='upper left')
+    # 设置标题
+    ax1.set_title('Loss and Accuracy')
     
-    # 添加标题和标签
-    plt.title(r'Training Loss Curve', fontsize=16)
-    plt.xlabel(r'Epoch', fontsize=14)
-    plt.ylabel(r'Loss', fontsize=14)
-
-    # # 调整坐标轴刻度
-    # plt.xticks(epochs, fontsize=12)
-    # plt.yticks(np.arange(min(total_loss)-0.1, max(total_loss)+0.2, 0.2), fontsize=12)
-
-    # 添加图例，调整图例位置
-    plt.legend(fontsize=12, loc='upper right')
-
-    # 调整图形边距
+    # 显示图像
     plt.tight_layout()
-
     plt.savefig(save)

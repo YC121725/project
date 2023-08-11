@@ -167,7 +167,7 @@ import torch.nn.functional as F
 #     for t in range(1, T):
 #         new_beam_probs = [0.0] * beam_width
 #         new_beam_results = [[] for _ in range(beam_width)]
-        
+
 #         # Beam Search算法的扩展步骤
 #         for b in range(beam_width):
 #             prev_prob = beam_probs[b]
@@ -375,16 +375,42 @@ import torch.nn.functional as F
 
 # # 显示图形
 # plt.show()
-def train(config):
-    print(config)
 
-import argparse
-import json
-parser = argparse.ArgumentParser(description="Model Training")
-parser.add_argument("--config", type=str, default="config.json", help="Path to config.json file")
-args = parser.parse_args()
-with open(args.config, "r") as config_file:
-        config = json.load(config_file)
-    # 调用训练函数
-train(config)
+# import matplotlib.pyplot as plt
+# import numpy as np
+
+# # 示例数据，替换成你的实际训练损失和准确率数据
+# epochs = np.arange(1, 11)
+# train_loss = np.array([0.5, 0.4, 0.3, 0.25, 0.2, 0.15, 0.1, 0.08, 0.07, 0.06])
+# accuracy = np.array([0.75, 0.8, 0.85, 0.87, 0.9, 0.92, 0.94, 0.95, 0.96, 0.97])
+
+# # 创建图像
+# fig, ax1 = plt.subplots(figsize=(10, 6))
+
+# # 绘制训练损失曲线
+# color = 'tab:blue'
+# ax1.set_xlabel('Epochs')
+# ax1.set_ylabel('Loss', color=color)
+# ax1.plot(epochs, train_loss, color=color,label='Training Loss')
+# ax1.tick_params(axis='y', labelcolor=color)
+
+# # 创建第二个y轴
+# ax2 = ax1.twinx()
+
+# # 绘制准确率曲线
+# color = 'tab:green'
+# ax2.set_ylabel('Accuracy', color=color)
+# ax2.plot(epochs, accuracy, color=color, label='Accuracy')
+# ax2.tick_params(axis='y', labelcolor=color)
+
+# # 添加图例
+# lines, labels = ax1.get_legend_handles_labels()
+# lines2, labels2 = ax2.get_legend_handles_labels()
+# ax2.legend(lines + lines2, labels + labels2, loc='upper left')
+
+# # 设置标题
+# ax1.set_title('Training Loss and Accuracy')
+
+# # 显示图像
+# plt.show()
 

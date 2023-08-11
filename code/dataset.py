@@ -1,11 +1,19 @@
 import librosa
 import os
-import torch
-from torch.utils.data import Dataset
 import numpy as np
+
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset
 from torch.nn.utils.rnn import pad_sequence
 
+import tensorflow as tf
+import matplotlib.pyplot as plt
 
+CHARS = [" ","_","a","b","c","d","e","f","g",
+                        "h","i","j","k","l","m","n",
+                        "o","p","q","r","s","t",
+                        "u","v","w","x","y","z","<sil>"]
 class AsrDataset(Dataset):
     def __init__(
         self,
@@ -17,20 +25,8 @@ class AsrDataset(Dataset):
         wav_dir=None,
         type= 'train',
         mfcc = 40,
+        neg_sample = False,
     ):
-        """
-        Args:
-            scr_file (str):  clsp.trnscr
-            feature_type (str, optional):  "quantized" or "mfcc". Defaults to "discrete".
-            feature_file (str, optional): clsp.trainlbls or clsp.devlbls. Defaults to None.
-            feature_label_file (str, optional):  clsp.lblnames. Defaults to None.
-            wav_scp (str, optional): clsp.trnwav or clsp.devwav. Defaults to None.
-            wav_dir (str, optional): wavforms/. Defaults to None.
-            type (str, optional): if . Defaults to 'train'.
-        
-        if feature_type is 'discrete',
-        if feature_file is 'mfcc', you should give wav_scp, wav_dir, and scr_file
-        """
 
         self.feature_type = feature_type
         assert self.feature_type in ["discrete", "mfcc"]
@@ -67,20 +63,18 @@ class AsrDataset(Dataset):
         
         # read the feature_label_file
         with open(feature_label_file) as f:
-            self.feature_dict = {}
+            self.feature_dict = {'<pad>': 0}
+            
             for i, feat in enumerate(f.readlines()):
-                if feat.strip() == "clsp.lblnames":
-                    self.feature_dict['<blank>'] = i
-                    continue
-                self.feature_dict[feat.strip()] = i
-        
+                if feat.strip() != '':
+                    self.feature_dict[feat.strip()] = i+1
+
         # read discrete feature
         with open(feature_file) as f:
             input_feature = []
             for i, feat in enumerate(f.readlines()):
-                if feat.strip() == "clsp.trnlbls":
+                if i==0:
                     continue
-
                 feat = feat.strip().split()
                 input_feature.append([])
                 for index in feat:
@@ -89,6 +83,9 @@ class AsrDataset(Dataset):
 
             return input_feature
     
+    def get_feature_dict(self):
+        return self.feature_dict
+        
     @staticmethod
     def _extract_non_zero_features(audio):
         for i,data in enumerate(audio):
@@ -122,7 +119,6 @@ class AsrDataset(Dataset):
                     continue
                 
                 wav, sr = librosa.load(os.path.join(wav_dir, wavfile), sr=None)
-                
                 if non_zero:
                     wav = self._extract_non_zero_features(audio=wav)
                 
@@ -134,64 +130,41 @@ class AsrDataset(Dataset):
 
         return features
     
-    def _extract_label(self, scr_file):
-        # create `letter_dict`
-        CHARS = [" ","<sil>","a","b","c","d","e","f","g",
-                     "h","i","j","k","l","m","n",
-                     "o","p","q","r","s","t",
-                     "u","v","w","x","y","z",]
+    @staticmethod
+    def letter2num():
+        return {letter: i for i, letter in enumerate(CHARS)}
+    
+    @staticmethod
+    def num2letter():
+        return dict(enumerate(CHARS))
+    
+    
+    def _extract_label(self, scr_file,sil=True):
 
-        self.letter_dict = {letter: i for i, letter in enumerate(CHARS)}
+        self.letter_dict = self.letter2num()
         result = []
         with open(scr_file) as f:
             for i, line in enumerate(f.readlines()):
                 if i == 0:  
                     continue
-                each_word = line.strip()
-                # 生成每个单词的字母列表 ['e', 'a', 'c', 'h', '_', 'w', 'o', 'r', 'd']
-                letter = ['<sil>'] + list(each_word) + ['<sil>']
-                # letter = list(each_word)
-                result.append([self.letter_dict[j] for j in letter])
+                # 生成每个单词的字母列表 ['e', 'a', 'c', 'h']
+                each_word = list(line.strip())
                 
+                # 在重复单词中添加<sil>
+                word = []
+
+                per_char = None
+                for i in each_word:
+                    if i== per_char:
+                        word.append("_")
+                    word.append(i)
+                    per_char = i
+                
+                letter = ['<sil>'] + word + ['<sil>'] if sil else word
+                result.append([self.letter_dict[j] for j in letter])
         return result
     
 
-    
-    
-    
-    # def compute(self,audio):
-        
-    #     fs, sig = mfcc.readAudio(audio)
-    #     sig = self._extract_non_zero_features(audio=sig)
-    #     # print(sig)
-    #     # '''--------预处理--------'''
-    #     # '''(1)预加重'''
-    #     alpha = 0.97
-    #     sig = np.append(sig[0], sig[1:] - alpha * sig[:-1])
-
-    #     '''(2)分帧'''
-    #     frame_len = 400     #25ms
-    #     frame_shift = 160   #10ms
-    #     N = 256
-    #     frame_sig, pad_num = mfcc.enframe(sig,frame_len, frame_shift, fs)
-
-    #     # '''(3)加窗'''
-    #     window = mfcc.Window(frame_len,'hamming')
-    #     frame_sig_win = window * frame_sig
-
-    #     # '''--------stft--------'''
-    #     # N = 512
-    #     # print(frame_sig_win.shape)
-    #     frame_pow = mfcc.stft(frame_sig_win, N ,fs)
-
-    #     # # '''--------Mel 滤波器组--------'''
-    #     # '''Filter Bank 特征和MFCC特征提取'''
-    #     n_filter = 15   # mel滤波器个数
-
-    #     filter_banks,mfcc_bank,_ = mfcc.mel_filter(frame_pow, fs, n_filter, N, mfcc_Dimen=40)
-
-    #     return mfcc.Dynamic_Feature(mfcc_bank,ischafen=True)
-    
 def collate_fn(batch):
     """
     This function will be passed to your dataloader.
@@ -214,3 +187,4 @@ def collate_fn(batch):
     padded_label = pad_sequence(label,batch_first=True,padding_value=0)
 
     return padded_label, padded_features,unpadded_word_spelling_length,unpadded_feature_length
+
